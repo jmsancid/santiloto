@@ -17,6 +17,11 @@ def _fmt_euro_combo(combo) -> str:
     e1, e2 = sorted(stars)
     return f"{nums_s} ⭐ {e1:02d} {e2:02d}"
 
+def _fmt_reintegro(value) -> str:
+    if value is None:
+        return "Sin reintegro"
+    return str(int(value))
+
 def format_weekly_result(weekly: WeeklyResult) -> str:
     ws = weekly.week_start.isoformat() if weekly.week_start else "?"
     we = weekly.week_end.isoformat() if weekly.week_end else "?"
@@ -25,7 +30,7 @@ def format_weekly_result(weekly: WeeklyResult) -> str:
     lines.append("🎯 PRIMITIVA (Madrid)")
     if weekly.apuestas_primitiva:
         for d, ap in weekly.apuestas_primitiva:
-            lines.append(f"📌 {_fmt_day(d)}  |  Reintegro: {int(ap.reintegro)}")
+            lines.append(f"📌 {_fmt_day(d)}  |  Reintegro: {_fmt_reintegro(ap.reintegro)}")
             for i, combo in enumerate(ap.combinaciones, 1):
                 lines.append(f"  {i}) {_fmt_nums(combo)}")
             lines.append("")
