@@ -1,0 +1,9 @@
+.envrc
+.env
+.venv
+__pycache__/
+*.pyc
+
+# Nunca metas env/ al build (contiene secretos y rompe permisos)
+env/
+

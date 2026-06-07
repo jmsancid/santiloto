@@ -1,0 +1,44 @@
+services:
+  santiloto-api:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: localhost/santiloto-api:latest
+    container_name: santiloto-api
+    env_file:
+      - /srv/santiloto/app/env/api.env
+    volumes:
+      - /var/lib/santiloto:/data:Z
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - santiloto-net
+    restart: unless-stopped
+
+  santiloto-caddy:
+    image: docker.io/library/caddy:2
+    container_name: santiloto-caddy
+    depends_on:
+      - santiloto-api
+    env_file:
+      - /srv/santiloto/app/env/caddy.env
+    volumes:
+      - /srv/santiloto/deploy/Caddyfile:/etc/caddy/Caddyfile:Z
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - santiloto-net
+    restart: unless-stopped
+
+networks:
+  santiloto-net:
+    # importante: usa tu red podman ya creada (la que arregló DNS)
+    external: true
+
+volumes:
+  caddy_data:
+  caddy_config:
+
