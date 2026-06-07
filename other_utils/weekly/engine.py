@@ -294,6 +294,36 @@ def select_top_unique(
     return out
 
 
+def select_reintegro(
+        weekly_re_rank: dict[int, float],
+        global_re_rank: dict[int, float],
+) -> int:
+    """
+    Selecciona un reintegro válido para una predicción futura de La Primitiva.
+
+    Reglas de dominio:
+    - En históricos, reintegro puede ser NULL.
+    - En predicciones futuras, reintegro debe ser siempre un entero 0..9.
+    - Los NULL históricos no deben propagarse a una apuesta futura.
+    """
+
+    for rank in (weekly_re_rank, global_re_rank):
+        for value in rank.keys():
+            if value is None:
+                continue
+            try:
+                reintegro = int(value)
+            except (TypeError, ValueError):
+                continue
+
+            if 0 <= reintegro <= 9:
+                return reintegro
+
+    # Fallback último: si no hay ningún candidato válido en rankings,
+    # se genera un reintegro válido para no publicar una apuesta incompleta.
+    return 0
+
+
 # -----------------------------
 # Build apuestas from weekly rankings (sin repetidos)
 # -----------------------------
@@ -308,11 +338,8 @@ def build_apuestas_primitiva(
     apuestas: list[Apuesta_Primitiva] = []
     used_global: set[int] = set()
 
-    # reintegro común: top-1 (con fallback)
-    reintegro_list = select_top_unique(weekly_re_rank, global_re_rank, needed=1, exclude=set())
-    if not reintegro_list:
-        return []
-    reintegro = reintegro_list[0]
+    # reintegro común: top-1 válido 0..9, ignorando NULL históricos
+    reintegro = select_reintegro(weekly_re_rank, global_re_rank)
 
     # construir tantas apuestas como permita el ranking
     while True:
