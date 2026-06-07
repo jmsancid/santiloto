@@ -1,6 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+# Default sensato para dev si no se define la variable (puedes escoger uno)
+APP_DIR = Path(__file__).resolve().parent
+REPO_ROOT = APP_DIR.parent
+_DEFAULT_DB = REPO_ROOT / "data" / "loterias.db"
+
+DBFILE = str(Path(os.environ.get("SANTILOTO_DB_PATH", str(_DEFAULT_DB))).resolve())
 
 # cur_year = str(datetime.now().year)  # A�o actual para descargar las combinaciones de primitiva
 PRIMIFIELDS = ('idx', 'fecha', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'compl', 're')  # campos de la db de primitivas
@@ -19,7 +30,7 @@ SELEUROTOT = 'SelEuroTot'  # Nombre de la db con todas las apuestas de Euromillo
 PREMIADOSEURO = 'PremiadosEuro'  # Nombre de la db con todas las apuestas de Euromillones que coinciden
 # con alguna premiada anteriormente
 # DBDIR = r'/./'
-DBFILE = r'/var/lib/santiloto/loterias.db'
+# DBFILE = r'/var/lib/santiloto/loterias.db'
 PICKLEDIR = r'/home/chema/PycharmProjects/loterias/pickleFiles/'
 LOTOPICKERFILE = 'loterias.pkl' # contiene un diccionario con los tipos de sorte como clave y las listas de
 # combinaciones como valor

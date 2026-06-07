@@ -2,8 +2,7 @@
 # -*- coding: utf-8 -*-
 
 
-from datetime import datetime, timedelta
-from typing import Union
+from datetime import date, datetime, timedelta
 from constants import DBFILE, PRIMITIVA, PRIMIFIELDS, EUROMILLONES, EUROFIELDS
 from pathlib import Path
 from db_utils.db_management import DBManager
@@ -15,13 +14,7 @@ def check_results_db_file() -> Path | None:
     Verifica si el archivo loterias.db existe en el mismo directorio que el archivo main.py.
     :return Path si existe o None si no existe la base de datos
     """
-    # Se obtiene la ruta del directorio del archivo main.py
-    # __file__ se refiere a la ruta del script actual (file_utils.py)
-    # y parent.parent nos permite subir dos niveles para llegar a la carpeta principal
-    main_dir = Path(__file__).parent.parent
-
-    # Se construye la ruta completa al archivo datos.db
-    db_file_path = main_dir / DBFILE
+    db_file_path = Path(DBFILE)
 
     # Se comprueba si el archivo existe
     if db_file_path.is_file():
@@ -32,7 +25,7 @@ def check_results_db_file() -> Path | None:
         return None
 
 
-def get_latest_results_in_db(sorteo: str) -> Union[datetime.date, int]:
+def get_latest_results_in_db(sorteo: str) -> date | None:
     """
     Devuelve la fecha del último sorteo almacenado en la base de datos de primi o euro
     :param sorteo: tipo de sorteo, euromillones o primitiva
@@ -47,7 +40,7 @@ def get_latest_results_in_db(sorteo: str) -> Union[datetime.date, int]:
         # No existe la base de datos de loterías.
         # Abandono el programa con error
         print("\nEs necesario crear la base de datos de loterías con los resultados históricos")
-        return 1
+        return None
 
     # Accedo a la base de datos
     gestor_db = DBManager(loto_db)
@@ -231,13 +224,26 @@ def actualizacion_db(sorteo: str) -> bool | None:
                                      if fecha > fecha_ultimo_sorteo_euro_guardado}
         # print(euro_comb_faltantes_en_db)
         return inserta_resultados_sorteos_en_db(EUROMILLONES, euro_comb_faltantes_en_db)
+
     if sorteo == PRIMITIVA:
         print(f"\nACTUALIZANDO Base de datos de Primitiva")
         fecha_ultimo_sorteo_primi_guardado = get_latest_results_in_db(PRIMITIVA)
-        ultimos_resultados_primitiva = getPrimiLatestResults(
-            None if fecha_ultimo_sorteo_primi_guardado is None else
-            fecha_ultimo_sorteo_primi_guardado + timedelta(days=1)
-        )
+
+        try:
+            ultimos_resultados_primitiva = getPrimiLatestResults(
+                None if fecha_ultimo_sorteo_primi_guardado is None else
+                fecha_ultimo_sorteo_primi_guardado + timedelta(days=1)
+            )
+        except Exception as exc:
+            print(f"No se ha realizado la actualización de Primitiva: {exc}")
+            return False
+
+        primi_comb_faltantes_en_db = {
+            fecha: combi
+            for fecha, combi in ultimos_resultados_primitiva.items()
+            if fecha > fecha_ultimo_sorteo_primi_guardado
+        }
+
         # print(ultimos_resultados_primitiva)
         primi_comb_faltantes_en_db = {fecha: combi for fecha, combi in ultimos_resultados_primitiva.items()
                                       if fecha > fecha_ultimo_sorteo_primi_guardado}

@@ -1,124 +1,184 @@
+from __future__ import annotations
 
+import html
 import re
-from datetime import datetime, date
+import xml.etree.ElementTree as ET
+from datetime import date
+from email.utils import parsedate_to_datetime
 
-import requests
-from bs4 import BeautifulSoup
-
-import constants as cte
-from other_utils.date_utils import procesa_fecha
+from playwright.sync_api import sync_playwright
 
 
-def filtra_combinaciones_nuevas(combinaciones, last_date):
-    if last_date is None:
-        return combinaciones
-    return {d: vals for d, vals in combinaciones.items() if d > last_date}
+#################################################
+#################################################
+####                                         ####
+####                                         ####
+####      VERSIÓN REALIZADA CON chatGPT      ####
+####      2026/03                            ####
+####                                         ####
+#################################################
+#################################################
+
+# ---------------------------------------------------------------------------
+# Primitiva
+# ---------------------------------------------------------------------------
+# En arisrv, los endpoints/HTML habituales de SELAE pueden devolver 403 de forma
+# no fiable según el edge/CDN. La obtención de resultados de Primitiva se hace
+# por tanto a través del RSS oficial, accedido con Playwright (navegador real).
+#
+# Formato devuelto por getPrimiLatestResults():
+#   {fecha_sorteo: [n1, n2, n3, n4, n5, n6, complementario, reintegro]}
+# ---------------------------------------------------------------------------
+
+PRIMI_RSS_URL = "https://www.loteriasyapuestas.es/es/la-primitiva/resultados/.formatoRSS"
+EURO_RSS_URL = "https://www.loteriasyapuestas.es/es/euromillones/resultados/.formatoRSS"
+
+_PRIMI_NUMBERS_RE = re.compile(
+    r"(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d{1,2})"
+    r"\s*Complementario:\s*C\((\d{1,2})\)"
+    r"\s*Reintegro:\s*R\((\d{1,2})\)"
+    r"(?:\s*Joker:\s*J\((\d+)\))?"
+)
+_EURO_NUMBERS_RE = re.compile(
+    r"(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d{1,2})"
+    r"\s*Estrellas:\s*(\d{1,2})\s*-\s*(\d{1,2})"
+)
 
 
-def getEuroLatestResults():
+def _fetch_xml_with_playwright(url: str, timeout_ms: int = 30000) -> str:
     """
-    Devuelve un diccionario con los últimos resultados de euromillones.
-    :return: dict[datetime.date, list[int]]
+    Descarga una URL con un navegador real (Playwright + Firefox) y devuelve
+    el bloque XML RSS extraído del contenido renderizado.
+
+    Se usa Playwright porque, en arisrv, curl/requests pueden recibir 403
+    aunque Firefox sí obtenga el RSS correctamente.
     """
+    with sync_playwright() as p:
+        browser = p.firefox.launch(headless=True)
+        page = browser.new_page()
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+        content = page.content()
+        browser.close()
 
-    response = requests.get(cte.EUROWEB)
-    # response = requests.get(lotoparams.EUROWEB)
-    # soup = BeautifulSoup(response.text, 'lxml')
-    soup = BeautifulSoup(response.text, 'lxml')
-    # print(soup.title.text)
-    # print(soup.prettify())
-    # Las combinaciones se encuentran dentro del bloque h4
-    h4_sorteos = soup.find_all('h4', string=re.compile('^Euromillones'))
-    print('**************   COMBINACIONES EUROMILLONES       ****************')
-    i = 0
-    combinacionesExtraidas = {}
-    for h4 in h4_sorteos:
-        # Extraer la fecha del texto de h4 y convertirla a formato AAAAMMDD
-        texto_h4 = h4.get_text(strip=True)
-        fecha = procesa_fecha(texto_h4)
-        # Buscar los números y estrellas dentro del mismo bloque de sorteo
-        bloque_sorteo = h4.parent
-        numeros = [int(n.get_text(strip=True)) for n in bloque_sorteo.find_all('li', class_='numeros')]
-        estrellas = [int(e.get_text(strip=True)) for e in bloque_sorteo.find_all('li', class_='estrellas')]
+    # Firefox puede mostrar el XML dentro de un visor HTML. Extraemos el bloque RSS.
+    match = re.search(r"(<rss\b.*</rss>)", content, flags=re.DOTALL)
+    if not match:
+        raise RuntimeError(f"No se pudo extraer XML RSS válido desde {url}")
 
-        # Combinar en una tupla y añadir al diccionario
-        combinacionesExtraidas[fecha] = numeros + estrellas
-        # print(fecha, combinacionesExtraidas[fecha])
+    return match.group(1)
 
-    return combinacionesExtraidas
+
+def _parse_primi_description(description_html: str) -> list[int]:
+    """
+    Extrae números de Primitiva desde el HTML embebido en <description> del RSS.
+
+    Devuelve:
+        [n1, n2, n3, n4, n5, n6, complementario, reintegro]
+    """
+    text = html.unescape(description_html)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    match = _PRIMI_NUMBERS_RE.search(text)
+    if not match:
+        raise RuntimeError(
+            "No se pudo extraer combinación/complementario/reintegro "
+            "del RSS de Primitiva"
+        )
+
+    return [int(match.group(i)) for i in range(1, 9)]
+
+
+def _parse_euro_description(description_html: str) -> list[int]:
+    """
+    Extrae números de Euromillones desde el HTML embebido en <description> del RSS.
+
+    Devuelve:
+        [n1, n2, n3, n4, n5, e1, e2]
+    """
+    text = html.unescape(description_html)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    match = _EURO_NUMBERS_RE.search(text)
+    if not match:
+        raise RuntimeError(
+            "No se pudo extraer combinación/estrellas del RSS de Euromillones"
+        )
+
+    return [int(match.group(i)) for i in range(1, 8)]
+
 
 
 def getPrimiLatestResults(fecha_inicial: date | None = None) -> dict[date, list[int]]:
-    '''
-    Devuelve un diccionario con los resultados de primitiva del último mes, siendo la clave una cadena
-    con la fecha y el valor una lista con los números extraídos.
-    La fecha final corresponde al lunes de la semana siguiente a la actual y la fecha inicial a la del lunes de
-    5 semanas atrás
-    :return: diccionario {fecha: [num1, num2, num3, num4, num5, num6, comp, re]}
-            1 si ha habido algún error
-    '''
-    # En 2025 he tenido que cambiar la forma de extraer los números de la primitiva, utilizando un script que
-    # encontré mientras inspeccionaba la web de primitivas y que se llama buscadorSorteos
-    # next_monday = datetime.now() + timedelta(days=8-datetime.now().isoweekday())
-    # four_mondays_ago = next_monday + timedelta(weeks=-4)
+    """
+    Devuelve resultados recientes de Primitiva usando el RSS oficial.
+
+    Resultado:
+        {fecha_sorteo: [n1, n2, n3, n4, n5, n6, complementario, reintegro]}
+
+    Si fecha_inicial no es None, solo se devuelven sorteos con fecha >= fecha_inicial.
+    """
+    rss_xml = _fetch_xml_with_playwright(PRIMI_RSS_URL)
+    root = ET.fromstring(rss_xml)
+
+    channel = root.find("channel")
+    if channel is None:
+        raise RuntimeError("RSS de Primitiva sin nodo <channel>")
+
+    resultados: dict[date, list[int]] = {}
+
+    for item in channel.findall("item"):
+        pub_date_text = item.findtext("pubDate")
+        description_html = item.findtext("description")
+
+        if not pub_date_text or not description_html:
+            continue
+
+        draw_date = parsedate_to_datetime(pub_date_text).date()
+
+        if fecha_inicial is not None and draw_date < fecha_inicial:
+            continue
+
+        resultados[draw_date] = _parse_primi_description(description_html)
+
+    return dict(sorted(resultados.items(), reverse=True))
 
 
-    # url = 'https://www.loteriasyapuestas.es/servicios/buscadorSorteos'
-    headers = {
-        'Host': 'www.loteriasyapuestas.es',
-        'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0',
-        'Accept': 'application/json, text/javascript, */*; q=0.01',
-        'Accept-Language': 'es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3',
-        'Accept-Encoding': 'gzip, deflate, br, zstd',
-        'X-Requested-With': 'XMLHttpRequest',
-        'Alt-Used': 'www.loteriasyapuestas.es',
-        'Connection': 'keep-alive',
-        'Referer': 'https://www.loteriasyapuestas.es/es/resultados/primitiva',
-        'Cookie': 'usr-lang=es; UUID=WEB-b5034850-cfee-4bc8-9c03-3f7c2c7e4179; '
-                  'CookieConsent={stamp:%271UCnsPBJe8OGTadACzKrwaj8WPRPRWzQh+AUa9ZQnF8dtK0egRLfxQ=='
-                  '%27%2Cnecessary:true%2Cpreferences:true%2Cstatistics:true%2Cmarketing:true%2Cmethod:'
-                  '%27explicit%27%2Cver:1%2Cutc:1740931548034%2Cregion:%27es%27}'
-    }
+# ---------------------------------------------------------------------------
+# Euromillones
+# ---------------------------------------------------------------------------
 
-    hoy = date.today()
-    if fecha_inicial is None:
-        fecha_inicio_str = f"{hoy.year}0101"
-    else:
-        # sumas un día para no repetir el último ya guardado
-        fecha_inicio_str = (fecha_inicial).strftime("%Y%m%d")
+def getEuroLatestResults(fecha_inicial: date | None = None) -> dict[date, list[int]]:
+    """
+    Devuelve resultados recientes de Euromillones usando el RSS oficial.
 
-    params = {
-        'game_id': 'LAPR',
-        'celebrados': 'true',
-        'fechaInicioInclusiva': fecha_inicio_str,
-        'fechaFinInclusiva': f"{datetime.now().year}{datetime.now().month:02d}{datetime.now().day:02d}"
-    }
+    Resultado:
+        {fecha_sorteo: [n1, n2, n3, n4, n5, e1, e2]}
 
-    response = requests.get(cte.PRIMIWEB, headers=headers, params=params)
+    Si fecha_inicial no es None, solo se devuelven sorteos con fecha >= fecha_inicial.
+    """
+    rss_xml = _fetch_xml_with_playwright(EURO_RSS_URL)
+    root = ET.fromstring(rss_xml)
 
-    if response.status_code != 200:
-        print(f"Error accediendo a la web {cte.PRIMIWEB}\n Código de Error: {response.status_code}")
-        return 1
-    print('++++++++++++++   COMBINACIONES PRIMITIVA +++++++++++++++++')
-    #
-    sorteos = response.json()  # En 2025, la web de primitivas devuelve un json con los resultados.
-    combinaciones_extraidas = {}
-    for sorteo in sorteos:
-        # Extraigo la fecha y la convierto en formato datetime.date
-        fecha_sorteo = datetime.strptime(
-            sorteo.get("fecha_sorteo"), '%Y-%m-%d %H:%M:%S'
-        ).date()
-        # fecha = datetime(fecha_sorteo.year, fecha_sorteo.month,fecha_sorteo.day).date()
+    channel = root.find("channel")
+    if channel is None:
+        raise RuntimeError("RSS de Euromillones sin nodo <channel>")
 
-        # if fecha is None:
-        #   continue
-        # str_comb = sorteo.get("combinacion")
-        # combinaciones_extraidas[fecha] = list(map(int, re.findall(r'\d+', str_comb)))
+    resultados: dict[date, list[int]] = {}
 
-        nums = list(map(int, re.findall(r"\d+", sorteo["combinacion"])))
-        combinaciones_extraidas[fecha_sorteo] = nums
+    for item in channel.findall("item"):
+        pub_date_text = item.findtext("pubDate")
+        description_html = item.findtext("description")
 
+        if not pub_date_text or not description_html:
+            continue
 
-    return combinaciones_extraidas
+        draw_date = parsedate_to_datetime(pub_date_text).date()
 
+        if fecha_inicial is not None and draw_date < fecha_inicial:
+            continue
 
+        resultados[draw_date] = _parse_euro_description(description_html)
+
+    return dict(sorted(resultados.items(), reverse=True))

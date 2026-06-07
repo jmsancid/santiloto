@@ -399,7 +399,7 @@ class DBManager:
           p.re,
           si.temp_media, si.rhum_media, si.ahum_media, si.luna_phase_value
         FROM Primitiva p
-        JOIN Sorteoinfluencers si
+        JOIN SorteoInfluencers si
           ON si.fecha = p.fecha AND si.juego = 'Primitiva'
         """
         rows = self._ejecutar_consulta(sql) or []
@@ -421,7 +421,7 @@ class DBManager:
           e.e1, e.e2,
           si.temp_media, si.rhum_media, si.ahum_media, si.luna_phase_value
         FROM Euromillones e
-        JOIN Sorteoinfluencers si
+        JOIN SorteoInfluencers si
           ON si.fecha = e.fecha AND si.juego = 'Euromillones'
         """
         rows = self._ejecutar_consulta(sql) or []

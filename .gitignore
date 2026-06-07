@@ -15,12 +15,21 @@ build/
 .venv/
 venv/
 .envrc
+.envrc.local
+.uv/
 
-# --- IDE/Editor ---
+# --- IDE / editor ---
 .idea/
 .vscode/
 *.swp
 *.swo
+
+# --- Local development/environment files ---
+env/*.env
+env/
+.env
+.env.*
+*.bck
 
 # --- DB / runtime data ---
 loterias.db
@@ -31,13 +40,10 @@ loterias.db
 *.db-shm
 *.db-journal
 
-# --- Secrets / env files ---
-.env
-*.env
-/config/*.env
+# --- Secrets / certificates ---
 secrets/
 *.key
 *.pem
 
-.uv/
+# --- Lock / legacy ---
 requirements.lock
